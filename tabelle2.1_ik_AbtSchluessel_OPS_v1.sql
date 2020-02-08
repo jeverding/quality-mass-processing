@@ -1,7 +1,6 @@
 USE tempdb;
 
---wird hier eigentlich nicht weiter benötigt
---aber evtl. hilfreich zum Überprüfen der Ordnerstruktur 
+--Not necessary, but might be helpful for checking folder structure 
 IF OBJECT_ID('tempdb..#subfolders') IS NOT NULL DROP TABLE #subfolders
 CREATE TABLE #subfolders (
 	[SubFolderName] VARCHAR(500),
@@ -41,10 +40,10 @@ CREATE TABLE #tempList (
 		go
 		select * from #tempList
 
---Tabelle mit Spalten für die relevanten Daten anlegen 
+--Make table and define cols. (e.g. hospital ward id, OPS codes, year)
 IF OBJECT_ID('tempdb..table2_1') IS NOT NULL DROP TABLE table2_1
 create table table2_1 (
-	AbtSchlüssel int,
+	AbtSchlÃ¼ssel int,
 	AbtNummer int, 
 	OPSpflicht varchar(50),
 	AnzOPSpflicht int, 
@@ -64,14 +63,14 @@ CREATE TABLE [dbo].[XMLImport](
 ) ON [PRIMARY]
 GO
 
-		declare @Directory varchar(200)
-		select @Directory = 'C:\QualiBerichte_Masterarbeit\test\space\'
-		declare @FileExist int
+		DECLARE @Directory varchar(200)
+		SELECT @Directory = 'C:\QualiBerichte_Masterarbeit\test\space\'
+		DECLARE @FileExist int
 		DECLARE @FileName varchar(500),@DeleteCommand varchar(1000),@FullFileName varchar(500)
 		DECLARE @SQL NVARCHAR(1000),@xml xml
  
-		--This is so that we know how long the INNER loop lasts
-		declare @LoopID int, @MaxID int
+		--Use this to mark how long the INNER loop lasts
+		DECLARE @LoopID int, @MaxID int
 		SELECT @LoopID = min(id),@MaxID = max(ID)
 		FROM #tempList
 
@@ -79,8 +78,8 @@ GO
 		BEGIN
  
 			SELECT @FileName = [filename]
-			from #tempList
-			where id = @LoopID
+			FROM #tempList
+			WHERE id = @LoopID
 
 			truncate table XMLImport 
 			SELECT @FullFileName = @Directory + substring(@FileName,14,4) + '\' + @FileName 
@@ -107,7 +106,7 @@ GO
 					INTO dummy0
 					FROM OPENXML (@hdoc, '/Qualitaetsbericht/Organisationseinheiten_Fachabteilungen/Organisationseinheit_Fachabteilung/Prozeduren/Verpflichtend/Prozedur', 2)
 					WITH (
-						AbtSchlüssel int '../../../Fachabteilungsschluessel/FA_Schluessel',
+						AbtSchlÃ¼ssel int '../../../Fachabteilungsschluessel/FA_Schluessel',
 						AbtNummer int '../../../Gliederungsnummer',
 						OPSpflicht varchar(50) 'OPS_301',
 						AnzOPSpflicht int 'Fallzahl',
@@ -120,7 +119,7 @@ GO
 					INTO dummy0
 					FROM OPENXML (@hdoc, '/Qualitaetsbericht/Organisationseinheiten_Fachabteilungen/Organisationseinheit_Fachabteilung/Prozeduren/Verpflichtend/Prozedur', 2)
 					WITH (
-						AbtSchlüssel int '../../../Fachabteilungsschluessel/FA_Schluessel',
+						AbtSchlÃ¼ssel int '../../../Fachabteilungsschluessel/FA_Schluessel',
 						AbtNummer int '../../../Gliederungsnummer',
 						OPSpflicht varchar(50) 'OPS_301',
 						AnzOPSpflicht int 'Anzahl',
@@ -136,14 +135,14 @@ GO
 			ALTER TABLE dummy0 ADD EntOrt int;
 			UPDATE dummy0 SET EntOrt = substring(@FileName,11,2)
 			
-			INSERT INTO table2_1 (AbtSchlüssel, AbtNummer, OPSpflicht, AnzOPSpflicht, OPSfreiw, AnzOPSfreiw, Berichtsjahr, ik, EntOrt)
-			SELECT AbtSchlüssel, AbtNummer, OPSpflicht, AnzOPSpflicht, OPSfreiw, AnzOPSfreiw, Berichtsjahr, ik, EntOrt FROM dummy0;
+			INSERT INTO table2_1 (AbtSchlÃ¼ssel, AbtNummer, OPSpflicht, AnzOPSpflicht, OPSfreiw, AnzOPSfreiw, Berichtsjahr, ik, EntOrt)
+			SELECT AbtSchlÃ¼ssel, AbtNummer, OPSpflicht, AnzOPSpflicht, OPSfreiw, AnzOPSfreiw, Berichtsjahr, ik, EntOrt FROM dummy0;
 			DROP TABLE dummy0
 		END
 		--ende inner loop 
 
-select * from table2_1
-where AbtSchlüssel=100
-order by Berichtsjahr, ik, EntOrt, AbtSchlüssel
+SELECT * FROM table2_1
+WHERE AbtSchlÃ¼ssel=100
+ORDER BY Berichtsjahr, ik, EntOrt, AbtSchlÃ¼ssel
 --select distinct * from table2_1
 --order by Berichtsjahr, ik, EntOrt, AbtNummer
