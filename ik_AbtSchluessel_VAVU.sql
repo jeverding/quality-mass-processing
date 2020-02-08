@@ -1,7 +1,6 @@
 USE tempdb;
 
---wird hier eigentlich nicht weiter benötigt
---aber evtl. hilfreich zum Überprüfen der Ordnerstruktur 
+--Not necessary, but might be helpful for checking folder structure  
 IF OBJECT_ID('tempdb..#subfolders') IS NOT NULL DROP TABLE #subfolders
 CREATE TABLE #subfolders (
 	[SubFolderName] VARCHAR(500),
@@ -17,8 +16,8 @@ CREATE TABLE #subfolders (
 		--used to loop over the table (outer loop)
 		--not used
 		alter table #subfolders add id_sub int identity
-		go
-		select * from #subfolders
+		GO
+		SELECT * FROM #subfolders
 
 IF OBJECT_ID('tempdb..#tempList') IS NOT NULL DROP TABLE #tempList
 CREATE TABLE #tempList (
@@ -38,16 +37,16 @@ CREATE TABLE #tempList (
 		DELETE #tempList WHERE [FileName] LIKE '%-99-%'
 		--used to loop over the table (inner loop)
 		alter table #tempList add id int identity
-		go
-		select * from #tempList
+		GO
+		SELECT * FROM #tempList
 
---Tabelle mit Spalten für die relevanten Daten anlegen 
+--Make table and define cols. (e.g. hospital ward id, vavu codes, year) 
 IF OBJECT_ID('tempdb..table3') IS NOT NULL DROP TABLE table3
 create table table3 (
-	AbtSchlüssel int,
+	AbtSchlÃ¼ssel int,
 	AbtNummer int, 
-	VAVUSchlüssel varchar(50),
-	ErläutVAVU varchar(8000),
+	VAVUSchlÃ¼ssel varchar(50),
+	ErlÃ¤utVAVU varchar(8000),
 	Berichtsjahr int, 
 	ik int,
 	EntOrt int
@@ -62,13 +61,13 @@ CREATE TABLE [dbo].[XMLImport](
 ) ON [PRIMARY]
 GO
 
-		declare @Directory varchar(200)
-		select @Directory = 'D:\Dropbox\Data\16_GBA\'
-		declare @FileExist int
+		DECLARE @Directory varchar(200)
+		SELECT @Directory = 'D:\Dropbox\Data\16_GBA\'
+		DECLARE @FileExist int
 		DECLARE @FileName varchar(500),@DeleteCommand varchar(1000),@FullFileName varchar(500)
 		DECLARE @SQL NVARCHAR(1000),@xml xml
  
-		--This is so that we know how long the INNER loop lasts
+		--Use this to mark how long the INNER loop lasts
 		declare @LoopID int, @MaxID int
 		SELECT @LoopID = min(id),@MaxID = max(ID)
 		FROM #tempList
@@ -105,10 +104,10 @@ GO
 					INTO dummy0
 					FROM OPENXML (@hdoc, '/Qualitaetsbericht/Organisationseinheiten_Fachabteilungen/Organisationseinheit_Fachabteilung/Versorgungsschwerpunkte/Versorgungsschwerpunkt', 2)
 					WITH (
-						AbtSchlüssel int '../../Fachabteilungsschluessel/FA_Schluessel',
+						AbtSchlÃ¼ssel int '../../Fachabteilungsschluessel/FA_Schluessel',
 						AbtNummer int '../../Gliederungsnummer',
-						VAVUSchlüssel varchar(50) 'VA_VU_Schluessel',
-						ErläutVAVU varchar(8000) 'Erlaeuterungen'
+						VAVUSchlÃ¼ssel varchar(50) 'VA_VU_Schluessel',
+						ErlÃ¤utVAVU varchar(8000) 'Erlaeuterungen'
 					) 
 				end 
 				else
@@ -116,10 +115,10 @@ GO
 					INTO dummy0
 					FROM OPENXML (@hdoc, '/Qualitaetsbericht/Organisationseinheiten_Fachabteilungen/Organisationseinheit_Fachabteilung/Medizinische_Leistungsangebote/Medizinisches_Leistungsangebot', 2)
 					WITH (
-						AbtSchlüssel int '../../Fachabteilungsschluessel/FA_Schluessel',
+						AbtSchlÃ¼ssel int '../../Fachabteilungsschluessel/FA_Schluessel',
 						AbtNummer int '../../Gliederungsnummer',
-						VAVUSchlüssel varchar(50) 'VA_VU_Schluessel',
-						ErläutVAVU varchar(8000) 'Erlaeuterungen'
+						VAVUSchlÃ¼ssel varchar(50) 'VA_VU_Schluessel',
+						ErlÃ¤utVAVU varchar(8000) 'Erlaeuterungen'
 					) 
 			EXEC sp_xml_removedocument @hdoc
 
@@ -130,13 +129,11 @@ GO
 			ALTER TABLE dummy0 ADD EntOrt int;
 			UPDATE dummy0 SET EntOrt = substring(@FileName,11,2)
 			
-			INSERT INTO table3 (AbtSchlüssel, AbtNummer, VAVUSchlüssel, ErläutVAVU, Berichtsjahr, ik, EntOrt)
-			SELECT AbtSchlüssel, AbtNummer, VAVUSchlüssel, ErläutVAVU, Berichtsjahr, ik, EntOrt FROM dummy0;
+			INSERT INTO table3 (AbtSchlÃ¼ssel, AbtNummer, VAVUSchlÃ¼ssel, ErlÃ¤utVAVU, Berichtsjahr, ik, EntOrt)
+			SELECT AbtSchlÃ¼ssel, AbtNummer, VAVUSchlÃ¼ssel, ErlÃ¤utVAVU, Berichtsjahr, ik, EntOrt FROM dummy0;
 			DROP TABLE dummy0
 		END
-		--ende inner loop 
+		--end inner loop 
 
-select * from table3
-order by Berichtsjahr, ik, EntOrt, AbtNummer
---select distinct * from table3
---order by Berichtsjahr, ik, EntOrt, AbtNummer
+SELECT * FROM table3
+ORDER BY Berichtsjahr, ik, EntOrt, AbtNummer
