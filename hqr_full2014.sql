@@ -1,32 +1,55 @@
-USE [Masterarbeit 1];
-			-- PART 1 Des Beispiels 
---DROP TABLE XMLImport
+---------------------------------------------------------------------------------------------------------------------------
+--
+-- Title: German hospital quality reports, year 2014 
+-- Author: Jakob Everding 
+-- Date: 17.09.2016 
+-- 
+-- This query scrapes various information on hospitals from the 2014 quality reports (available from the Gemeinsamer 
+-- Bundesausschuss, GBA). The characteristics written to tables include ownership, type of wards, number of inpatient 
+-- admissions, day care, regional mandatory psychiatric care, number of physicians, and  teaching status. 
+-- Then geographical information is added to another table (federal state). 
+-- For every single hospital, there exists at least one xml file per year (specifically, one for each hospital site). 
+-- Both tables (main hospital and state information) are filled using a dynamic loop structure to fetch every single 
+-- existing xml file and process them sequentially. That is, the query writes data from one hospital site at a time to 
+-- temporary tables and, when finished with processing a file, inserts this information into the respective main table 
+-- (temp. tables used in order not to overwrite data in main table when iterating through single xml files). 
+-- Data is restricted to psychiatric/psychosomatic wards. The tables are joined eventually on the institution id 
+-- (not ward, but hospital level here; necessary given that state info is provided in different file). 
+-- 
+-- For information on and access to the German hospital quality reports, please see the GBA: 
+-- https://www.g-ba.de/themen/qualitaetssicherung/datenerhebung-zur-qualitaetssicherung/datenerhebung-qualitaetsbericht/ 
+-- https://www.g-ba-qualitaetsberichte.de/#/search 
+--
+---------------------------------------------------------------------------------------------------------------------------
+
+USE [QualiBerichte];
+
+--
+--Part 1: Hospital information, at ward level
+--
 
 IF OBJECT_ID('tempdb..#tempList') IS NOT NULL
 DROP TABLE #tempList
  
 CREATE TABLE #tempList ([FileName] VARCHAR(500))
  
---plain vanilla dos dir command with /B switch (bare format)
+--Simple dos dir command with /B switch (bare format)
 INSERT INTO #tempList
 EXEC MASTER..XP_CMDSHELL 'DIR C:\Test_loop_code /B'
  
- 
---delete the null values
+--Delete null values
 DELETE #tempList WHERE [FileName] IS NULL
  
--- Delete all the files that don't have xml extension
+--Keep only files of type .xml 
 DELETE #tempList WHERE [FileName] NOT LIKE '%-xml.xml'
  
---this will be used to loop over the table
-alter table #tempList add id int identity
-go
+--Prepare code to loop over table
+ALTER TABLE #tempList ADD id int identity
+GO
 
-select * from #tempList
+SELECT * FROM #tempList
 
-			-- PART 2 Des Beispiels 
-
---Tabelle mit Spalten für die relevanten Daten anlegen 
+--Make table and define cols. (e.g. hospital ward id, number of inpatient cases at ward/hospital level, year)
 --drop table KH_MainData
 --create table KH_MainData (
 --Traegerschaft varchar(100),
@@ -44,7 +67,6 @@ select * from #tempList
 --Fachaerzte_Abt_ohne_Belegaerzte nvarchar(50),
 --Berichtsjahr int
 --) ON [PRIMARY] 
-----on primary evtl. weglassen, Funktion überprüfen! 
 --GO
 
 --CREATE TABLE [dbo].[XMLImport](
@@ -54,19 +76,18 @@ select * from #tempList
 --) ON [PRIMARY]
 --GO
 
-			 -- PART 3 Des Beispiels 
 truncate table KH_MainData
-truncate table XMLImport --in case you want to rerun just this codeblock
+truncate table XMLImport --to rerun just this codeblock
 declare @Directory varchar(200)
 select @Directory = 'C:\Test_loop_code\'
  
-declare @FileExist int
+DECLARE @FileExist int
 DECLARE @FileName varchar(500),@DeleteCommand varchar(1000),@FullFileName varchar(500)
  
 DECLARE @SQL NVARCHAR(1000),@xml xml
  
---This is so that we know how long the loop lasts
-declare @LoopID int, @MaxID int
+--Use this to mark how long the loop lasts
+DECLARE @LoopID int, @MaxID int
 SELECT @LoopID = min(id),@MaxID = max(ID)
 FROM #tempList
  
@@ -76,43 +97,33 @@ WHILE @LoopID <= @MaxID
 BEGIN
  
     SELECT @FileName = filename
-    from #tempList
-    where id = @LoopID
+    FROM #tempList
+    WHERE id = @LoopID
  
     SELECT @FullFileName = @Directory + @FileName 
     
     exec xp_fileexist @FullFileName , @FileExist output
-    if @FileExist =1 --sanity check in case some evil person removed the file
-    begin
+    IF @FileExist = 1 --sanity check if file actually exists
+    BEGIN
     SELECT @SQL = N'select @xml = xml 
         FROM OPENROWSET(BULK ''' + @FullFileName +''' ,Single_BLOB) as TEMP(xml)'
      
-    -- Just like in the bedroom, this is where the magic happens
-    -- We use the output functionality to fill the xml variable for later use
+    --Use output functionality to fill xml variable for later use
     EXEC SP_EXECUTESQL @SQL, N'@xml xml OUTPUT', @xml OUTPUT
      
-    
-    --The actual insert happens here, as you can see we use the output value (@xml)
+    --Insert happens here, using the output value (@xml)
     INSERT XMLImport ([filename],timecreated,xmldata)
     SELECT @FileName,getdate(),@xml
     
     SET @DeleteCommand = 'del ' +  @Directory + @FileName 
-    --maybe you want to delete or move the file to another directory
-    -- ** here is how to delete the files you just imported
-    -- uncomment line below to delete the file just inserted
+    --To delete/move imported files to another directory: Uncommenting line below deletes file
     --EXEC MASTER..XP_CMDSHELL @DeleteCommand
-    -- ** end of here is how to delete the files
-    end
+    END
  
-    --Get the next id, instead of +1 we grab the next value in case of skipped id values
+    --Get next id, instead of simple +1 directly get next available value (robust against skipped id values)
     SELECT @LoopID = min(id)
     FROM #tempList
-    where id > @LoopID
-
-
-	--Hier NEUER PART: In SQL geladene XMLs richtig öffnen bzw. filtern 
-	--aber weiterhin in der Schleife, damit für jede aus dem Ordner geladene Datei auch eine 
-	--Zeile in KH_test4 geschrieben wird 
+    WHERE id > @LoopID
 
 	
 DECLARE @hdoc int
@@ -122,9 +133,7 @@ EXEC sp_xml_preparedocument @hdoc OUTPUT, @xml
 SELECT *
 INTO dummytemp1
 FROM OPENXML (@hdoc, '/Qualitaetsbericht/Organisationseinheiten_Fachabteilungen/Organisationseinheit_Fachabteilung/Fachabteilungsschluessel', 2)
-
 WITH (
-
 Traegerschaft varchar(100) '../../../Krankenhaustraeger/Krankenhaustraeger_Art', 
 Institutionskennzeichen int '../../../Krankenhaus/Kontaktdaten/IK', 
 Fachabteilungsschluessel int 'FA_Schluessel',
@@ -142,59 +151,53 @@ Fachaerzte_Abt_ohne_Belegaerzte nvarchar(50) '../Personelle_Ausstattung/Aerztlic
 
 EXEC sp_xml_removedocument @hdoc
 
+--Add current year (i.e. 2014, in this case) to table 
 ALTER TABLE dummytemp1 ADD Berichtsjahr int;
 UPDATE dummytemp1 SET Berichtsjahr = 2014;
---fügt der Tabelle für aktuelle xml datei das Berichtsjahr zu, 
---das müsste mit diesem Code für die einzelnen Jahre noch händisch angepasst werden 
 
+--Keep only psychiatric and psychosomatic wards (for information on codes, see e.g. https://www.gkv-datenaustausch.de/media/dokumente/leistungserbringer_1/krankenhaeuser/archiv/technische_anlage_2/20120101_20120229_Anlage_2.pdf)
 DELETE FROM dummytemp1
 WHERE Fachabteilungsschluessel!=2900 AND Fachabteilungsschluessel!=3000 AND Fachabteilungsschluessel!=3100 AND Fachabteilungsschluessel!=2928 AND Fachabteilungsschluessel!=2930 AND Fachabteilungsschluessel!=2931 AND Fachabteilungsschluessel!=2950 AND Fachabteilungsschluessel!=2951 AND Fachabteilungsschluessel!=2952 AND Fachabteilungsschluessel!=2953 AND Fachabteilungsschluessel!=2954 AND Fachabteilungsschluessel!=2955 AND Fachabteilungsschluessel!=2956 AND Fachabteilungsschluessel!=2960 AND Fachabteilungsschluessel!=2961 AND Fachabteilungsschluessel!=3060 AND Fachabteilungsschluessel!=3061 AND Fachabteilungsschluessel!=3160 AND Fachabteilungsschluessel!=3161; 
--- Sind alles psychiatrische und psychosomatische FA
 DELETE FROM dummytemp1 
 WHERE Fachabteilungsschluessel IS NULL; 
 
 INSERT INTO KH_MainData (Traegerschaft, Institutionskennzeichen, Fachabteilungsschluessel, Fallzahl_Vollstat_KH, Fallzahl_Teilstat_KH, Fallzahl_Ambul_KH, Bettenzahl_KH, LehrKH , PsyVersorgPfl, Vollstat_Faelle_Abt, Teilstat_Faelle_Abt, Aerzte_Abt_ohne_Belegaerzte, Fachaerzte_Abt_ohne_Belegaerzte, Berichtsjahr)
 SELECT Traegerschaft, Institutionskennzeichen, Fachabteilungsschluessel, Fallzahl_Vollstat_KH, Fallzahl_Teilstat_KH, Fallzahl_Ambul_KH, Bettenzahl_KH, LehrKH , PsyVersorgPfl, Vollstat_Faelle_Abt, Teilstat_Faelle_Abt, Aerzte_Abt_ohne_Belegaerzte, Fachaerzte_Abt_ohne_Belegaerzte, Berichtsjahr FROM dummytemp1;
-
 DROP TABLE dummytemp1
+END --End: Loop
 
-END
-
---			!!! Ab hier BUNDESLAND !!! 
+--
+--Part 2: Get information on federal state (similar structure as above)
+-- 
 
 --DROP TABLE XMLImport
-
 IF OBJECT_ID('tempdb..#tempList') IS NOT NULL
 DROP TABLE #tempList
  
 CREATE TABLE #tempList ([FileName] VARCHAR(500))
  
---plain vanilla dos dir command with /B switch (bare format)
+--Simple dos dir command with /B switch (bare format)
 INSERT INTO #tempList
 EXEC MASTER..XP_CMDSHELL 'DIR C:\Test_loop_code /B'
  
- 
---delete the null values
+--Delete null values
 DELETE #tempList WHERE [FileName] IS NULL
  
--- Delete all the files that don't have xml extension
+--Keep only files containing federal state information and of type .xml 
 DELETE #tempList WHERE [FileName] NOT LIKE '%-land.xml'
  
---this will be used to loop over the table
-alter table #tempList add id int identity
-go
+--Prepare code to loop over table
+ALTER TABLE #tempList ADD id int identity
+GO
 
-select * from #tempList
+SELECT * FROM #tempList
 
-			-- PART 2 Des Beispiels 
-
---Tabelle mit Spalten für die relevanten Daten anlegen 
+--Make table and define cols. (now only hospital id, federal state)
 --drop table KH_Land
 --create table KH_Land (
 --Bundesland varchar(100),
 --Institutionskennzeichen2 int
 --) ON [PRIMARY] 
-----on primary evtl. weglassen, Funktion überprüfen! 
 --GO
 
 --CREATE TABLE [dbo].[XMLImport](
@@ -204,65 +207,53 @@ select * from #tempList
 --) ON [PRIMARY]
 --GO
 
-			 -- PART 3 Des Beispiels 
 truncate table KH_Land
-truncate table XMLImport --in case you want to rerun just this codeblock
+truncate table XMLImport --to rerun just this codeblock
 declare @Directory varchar(200)
 select @Directory = 'C:\Test_loop_Code\'
  
-declare @FileExist int
+DECLARE @FileExist int
 DECLARE @FileName varchar(500),@DeleteCommand varchar(1000),@FullFileName varchar(500)
  
 DECLARE @SQL NVARCHAR(1000),@xml xml
  
---This is so that we know how long the loop lasts
-declare @LoopID int, @MaxID int
+--Use this to mark how long the loop lasts
+DECLARE @LoopID int, @MaxID int
 SELECT @LoopID = min(id),@MaxID = max(ID)
 FROM #tempList
- 
  
  
 WHILE @LoopID <= @MaxID
 BEGIN
  
     SELECT @FileName = filename
-    from #tempList
-    where id = @LoopID
+    FROM #tempList
+    WHERE id = @LoopID
  
     SELECT @FullFileName = @Directory + @FileName 
     
     exec xp_fileexist @FullFileName , @FileExist output
-    if @FileExist =1 --sanity check in case some evil person removed the file
+    if @FileExist =1 --sanity check if file actually exists
     begin
     SELECT @SQL = N'select @xml = xml 
         FROM OPENROWSET(BULK ''' + @FullFileName +''' ,Single_BLOB) as TEMP(xml)'
      
-    -- Just like in the bedroom, this is where the magic happens
-    -- We use the output functionality to fill the xml variable for later use
+    --Use output functionality to fill xml variable for later use
     EXEC SP_EXECUTESQL @SQL, N'@xml xml OUTPUT', @xml OUTPUT
      
-    
-    --The actual insert happens here, as you can see we use the output value (@xml)
+    --Insert happens here, using the output value (@xml)
     INSERT XMLImport ([filename],timecreated,xmldata)
     SELECT @FileName,getdate(),@xml
     
     SET @DeleteCommand = 'del ' +  @Directory + @FileName 
-    --maybe you want to delete or move the file to another directory
-    -- ** here is how to delete the files you just imported
-    -- uncomment line below to delete the file just inserted
+    --To delete/move imported files to another directory: Uncommenting line below deletes file
     --EXEC MASTER..XP_CMDSHELL @DeleteCommand
-    -- ** end of here is how to delete the files
     end
  
-    --Get the next id, instead of +1 we grab the next value in case of skipped id values
+    --Get next id, instead of simple +1 directly get next available value (robust against skipped id values)
     SELECT @LoopID = min(id)
     FROM #tempList
     where id > @LoopID
-
-
-	--Hier NEUER PART: In SQL geladene XMLs richtig öffnen bzw. filtern 
-	--aber weiterhin in der Schleife, damit für jede aus dem Ordner geladene Datei auch eine 
-	--Zeile in KH_test4 geschrieben wird 
 
 	
 DECLARE @hdoc int
@@ -272,13 +263,9 @@ EXEC sp_xml_preparedocument @hdoc OUTPUT, @xml
 SELECT *
 INTO dummytemp2
 FROM OPENXML (@hdoc, '/Externe_Qualitaetssicherung/Land', 2)
-
 WITH (
-
 Bundesland varchar(100) '../Land', 
 Institutionskennzeichen2 int '../IK_Krankenhaus')
---ModifiedDate datetime
-
 
 EXEC sp_xml_removedocument @hdoc
 
@@ -287,10 +274,12 @@ SELECT Bundesland, Institutionskennzeichen2 FROM dummytemp2;
 
 DROP TABLE dummytemp2
 
-END
+END --End: Loop
 
 
---			!!! Zusammenführen aller Daten in eine Tabelle !!! 
+--
+--Part 3: Join the two main tables (from part 1 and 2)
+--
 
 SELECT * 
 INTO KH_Comp
@@ -315,7 +304,6 @@ TRUNCATE TABLE KH_2014
 --Berichtsjahr int,
 --Bundesland varchar(100)
 --) ON [PRIMARY] 
-----on primary evtl. weglassen, Funktion überprüfen! 
 --GO
 
 INSERT INTO KH_2014 (Traegerschaft, Institutionskennzeichen, Fachabteilungsschluessel, Fallzahl_Vollstat_KH, Fallzahl_Teilstat_KH, Fallzahl_Ambul_KH, Bettenzahl_KH, LehrKH, Vollstat_Faelle_Abt, Teilstat_Faelle_Abt, Aerzte_Abt_ohne_Belegaerzte, Fachaerzte_Abt_ohne_Belegaerzte, Berichtsjahr,Bundesland)
@@ -343,7 +331,6 @@ TRUNCATE TABLE KH_2014Distinct
 --Berichtsjahr int,
 --Bundesland varchar(100)
 --) ON [PRIMARY] 
-----on primary evtl. weglassen, Funktion überprüfen! 
 --GO
 
 INSERT INTO KH_2014Distinct (Traegerschaft, Institutionskennzeichen, Fachabteilungsschluessel, Fallzahl_Vollstat_KH, Fallzahl_Teilstat_KH, Fallzahl_Ambul_KH, Bettenzahl_KH, LehrKH, Vollstat_Faelle_Abt, Teilstat_Faelle_Abt, Aerzte_Abt_ohne_Belegaerzte, Fachaerzte_Abt_ohne_Belegaerzte, Berichtsjahr,Bundesland)
